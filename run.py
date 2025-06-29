@@ -64,7 +64,7 @@ def main():
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     clock = pygame.time.Clock()
 
-    ear_path = os.path.join(os.path.dirname(__file__), "kulak.png")
+    ear_path = os.path.join(os.path.dirname(__file__), "images", "kulak.png")
     ear_img = pygame.image.load(ear_path).convert_alpha()
     ear_rect = ear_img.get_rect(center=(WIDTH // 2, HEIGHT // 2))
 

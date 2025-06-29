@@ -1,4 +1,3 @@
-import os
 import queue
 import numpy as np
 import pygame
@@ -6,83 +5,71 @@ import sounddevice as sd
 
 WIDTH, HEIGHT = 1280, 720
 FPS = 30
-RING_COUNT = 8
-COLORS = [
-    (75, 0, 130),  # indigo
-    (72, 61, 139),
-    (106, 90, 205),
-    (123, 104, 238),
-    (147, 112, 219),
-    (186, 85, 211),
-    (221, 160, 221),
-    (230, 230, 250),
+BAR_COUNT = 32  # Equalizer bar sayısı
+BAR_WIDTH = WIDTH // BAR_COUNT
+BAR_COLORS = [
+    (123, 104, 238), (186, 85, 211), (221, 160, 221), (230, 230, 250)
 ]
 
 AUDIO_QUEUE = queue.Queue()
-volume_level = 0.0
 
-
-def find_blackhole_device_id():
-    """Return the input device ID for BlackHole or None."""
+def find_input_device_id():
+    """Varsa BlackHole, yoksa default input device ID döner."""
     devices = sd.query_devices()
     for idx, dev in enumerate(devices):
         if "BlackHole" in dev.get("name", "") and dev.get("max_input_channels", 0) > 0:
             return idx
-    return None
-
+    # Eğer BlackHole yoksa, default input:
+    return sd.default.device[0]
 
 def audio_callback(indata, frames, time, status):
-    global volume_level
+    """Ses örneğini kuyruğa yollar."""
     if status:
         print(status, flush=True)
-    rms = float(np.sqrt(np.mean(indata**2)))
+    # FFT ile frekans barları
+    # Mono yap:
+    samples = np.mean(indata, axis=1)
+    # Hızlı Fourier Transform (magnitude):
+    fft_vals = np.abs(np.fft.rfft(samples, n=BAR_COUNT*2))
+    bars = fft_vals[:BAR_COUNT]
+    bars = np.clip(bars / np.max(bars), 0, 1) if np.max(bars) > 0 else bars
     try:
-        AUDIO_QUEUE.put_nowait(rms)
+        AUDIO_QUEUE.put_nowait(bars)
     except queue.Full:
         pass
 
-
-def draw_visualizer(screen, center, base_radius, volume):
-    for i in range(RING_COUNT):
-        growth = volume * 300  # scale volume to pixel growth
-        radius = base_radius + i * 20 + growth
-        pygame.draw.circle(screen, COLORS[i % len(COLORS)], center, int(radius), 2)
-
+def draw_equalizer(screen, bars):
+    """Barlar çizilir."""
+    for i in range(BAR_COUNT):
+        bar_height = int(bars[i] * (HEIGHT * 0.8))
+        x = i * BAR_WIDTH
+        y = HEIGHT - bar_height
+        color = BAR_COLORS[i % len(BAR_COLORS)]
+        pygame.draw.rect(screen, color, (x, y, BAR_WIDTH - 2, bar_height))
 
 def main():
-    device_id = find_blackhole_device_id()
-    if device_id is None:
-        print("BlackHole input device not found. Available devices:")
-        print(sd.query_devices())
-        return
-    print(f"Using BlackHole device ID: {device_id}")
+    device_id = find_input_device_id()
+    print(f"Using input device ID: {device_id}")
 
-    stream = sd.InputStream(device=device_id, channels=2, callback=audio_callback)
+    stream = sd.InputStream(device=device_id, channels=2, callback=audio_callback, blocksize=1024)
     stream.start()
 
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     clock = pygame.time.Clock()
+    bars = np.zeros(BAR_COUNT)
 
-    ear_path = os.path.join(os.path.dirname(__file__), "images", "kulak.png")
-    ear_img = pygame.image.load(ear_path).convert_alpha()
-    ear_rect = ear_img.get_rect(center=(WIDTH // 2, HEIGHT // 2))
-
-    base_radius = 80
     running = True
-    volume = 0.0
-
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
 
         while not AUDIO_QUEUE.empty():
-            volume = AUDIO_QUEUE.get()
+            bars = AUDIO_QUEUE.get()
 
         screen.fill((10, 10, 30))
-        screen.blit(ear_img, ear_rect)
-        draw_visualizer(screen, ear_rect.center, base_radius, volume)
+        draw_equalizer(screen, bars)
 
         pygame.display.flip()
         clock.tick(FPS)
@@ -90,7 +77,6 @@ def main():
     stream.stop()
     stream.close()
     pygame.quit()
-
 
 if __name__ == "__main__":
     main()
